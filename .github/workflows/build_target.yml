@@ -43,7 +43,7 @@ jobs:
 
 
       - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
           name: volla-apk
           path: ./releases/*.apk
