@@ -1,10 +1,17 @@
-name: Build Volla Launcher (debug)
+name: Build Volla Launcher
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - master
+    tags:
+      - '*'
+  pull_request:
+    branches:
+      - master
 
 jobs:
-  debug-build:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -13,53 +20,103 @@ jobs:
           submodules: true
           fetch-depth: 0
 
-      - name: Debug Build Apk inside Qt Docker
+      - name: Build Apk (inside Qt Docker)
         env:
           ANDROID_KEYSTORE_FILE_CONTENTS: ${{ secrets.ANDROID_KEYSTORE_FILE_CONTENTS }}
           ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
           ANDROID_KEYSTORE_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
         run: |
-          set -xeuo pipefail
+          set -euo pipefail
+          # Rutas locales de cache (absolutas en el runner)
           export CACHE_DIR=build/cache
           export M2_HOME="$(realpath -m $CACHE_DIR/.m2)"
           export MAVEN_HOME="$M2_HOME"
           export GRADLE_USER_HOME="$(realpath -m $CACHE_DIR/.gradle)"
+          export GRADLE_USER_HOME_ABS="/work/${CACHE_DIR}/.gradle"
+          export M2_HOME_ABS="/work/${CACHE_DIR}/.m2"
+          export GRADLE_USER_HOME_HOST="$GRADLE_USER_HOME"   # path en el runner (relativo)
           export VERSION="$(git describe --tags || git rev-parse --short HEAD)"
           export TIMESTAMP="$(date +%Y%m%d%H%M)"
           export BUILD_ID="$VERSION-$TIMESTAMP"
-          # asegurar carpetas y permisos en el runner
-          sudo mkdir -p "$MAVEN_HOME" "$GRADLE_USER_HOME" build releases
-          sudo chmod -R a+rwX build releases "$MAVEN_HOME" "$GRADLE_USER_HOME" || true
 
-          # montamos y arrancamos el contenedor con diagnóstico
+          # Precreamos caches en el runner y damos permisos para que el contenedor pueda escribir
+          sudo mkdir -p "$GRADLE_USER_HOME" "$M2_HOME" releases
+          sudo chmod -R a+rwX "$GRADLE_USER_HOME" "$M2_HOME" releases || true
+
+          # También precreamos la jerarquía específica que gradle-wrapper usa (para evitar error de lock)
+          sudo mkdir -p "$GRADLE_USER_HOME/wrapper/dists"
+          sudo chmod -R a+rwX "$GRADLE_USER_HOME/wrapper" || true
+
+          # Ejecutamos build dentro de la imagen Qt pero montando el workspace en /work
           docker run --rm \
             --user "$(id -u):$(id -g)" \
             -e ANDROID_KEYSTORE_FILE_CONTENTS \
             -e ANDROID_KEYSTORE_PASS \
             -e ANDROID_KEYSTORE_ALIAS \
             -e CACHE_DIR \
-            -e M2_HOME \
-            -e MAVEN_HOME \
-            -e GRADLE_USER_HOME \
+            -e M2_HOME="$M2_HOME_ABS" \
+            -e MAVEN_HOME="$M2_HOME_ABS" \
+            -e GRADLE_USER_HOME="$GRADLE_USER_HOME_ABS" \
             -e VERSION \
             -e BUILD_ID \
             -v "${GITHUB_WORKSPACE}:/work" \
             -w /work \
             a12e/docker-qt:5.13-android_arm64_v8a \
             bash -lc "\
-              set -xeuo pipefail; \
-              echo '--- CONTAINER: id / user / groups ---'; id; \
-              echo '--- CONTAINER: df -h / ls -la /work (size & perms) ---'; df -h / || true; ls -la /work || true; \
-              echo '--- CONTAINER: checking Qt & NDK ---'; ls -la /opt/qt || true; /opt/qt/5.13.2/android_arm64_v8a/bin/qmake -v || true; \
-              echo '--- CONTAINER: check ndk ---'; ls -la /opt/android-sdk || true; /opt/android-sdk/ndk-r19c/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ --version || true; \
-              echo '--- ENV ---'; env | sort; \
-              echo '--- LIST PROJECT (top) ---'; ls -la /work || true; \
-              echo '--- show vendor/qml if exist (short) ---'; ls -la vendor || true; ls -la qml || true; \
-              echo '--- RUN BUILD (verbose) ---'; \
+              set -euo pipefail; \
+              # aseguramos las mismas rutas dentro del contenedor (absolutas bajo /work) \
+              mkdir -p '${GRADLE_USER_HOME_ABS}/wrapper/dists' || true; \
+              mkdir -p '${M2_HOME_ABS}' || true; \
+              umask 0002; \
+              # si hace falta ajustar permisos dentro del contenedor al uid que ejecuta, lo hacemos \
+              chown -R $(id -u):$(id -g) /work || true; \
+              echo 'QML import paths and QT env:'; \
+              export QT_DIR=/opt/qt/5.13.2/android_arm64_v8a; \
+              export QML2_IMPORT_PATH=\$QT_DIR/qml:/work/vendor:/work/qml; \
+              export QT_PLUGIN_PATH=\$QT_DIR/plugins; \
+              export LD_LIBRARY_PATH=\$QT_DIR/lib:\$LD_LIBRARY_PATH; \
+              echo 'GRADLE_USER_HOME='${GRADLE_USER_HOME_ABS}; echo 'M2_HOME='${M2_HOME_ABS}; \
               mkdir -p build/android_arm64_v8a || true; \
-              set -x; ./build_package_android ./releases 2>&1 | tee /work/build_debug_log.txt || true; \
-              echo '--- END BUILD: ls releases and cat log ---'; ls -la ./releases || true; tail -n +1 /work/build_debug_log.txt || true;"
+              # ejecutamos el script de build (mostrar trazas) \
+              set -x; ./build_package_android ./releases; chmod -R 755 ./releases;"
 
-          # aseguramos que runner puede leer los artefactos
+          # Aseguramos permisos en runner para poder subir artifacts
           sudo chown -R "$(id -u):$(id -g)" ./releases || true
           ls -la ./releases || true
+
+      - name: Upload APK artifact (from build job)
+        uses: actions/upload-artifact@v4
+        with:
+          name: volla-apk
+          path: ./releases/*.apk
+
+  upload:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: volla-apk
+          path: ./artifacts
+
+      - name: Build Changelog
+        id: github_release
+        uses: mikepenz/release-changelog-builder-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v0.1.14
+        with:
+          body: ${{ steps.github_release.outputs.changelog }}
+          files: ./artifacts/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
