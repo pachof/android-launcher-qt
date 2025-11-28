@@ -5,7 +5,7 @@ on:
     branches:
       - master
     tags:
-      - '*'  # cualquier tag
+      - '*'
   pull_request:
     branches:
       - master
@@ -15,9 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: a12e/docker-qt:5.13-android_arm64_v8a
-
-    outputs:
-      apk_path: ${{ steps.save_apk.outputs.apk_path }}
 
     steps:
       - uses: actions/checkout@v3
@@ -44,15 +41,11 @@ jobs:
           ./build_package_android ./releases
           sudo chmod -R 755 ./releases
 
-      - name: Save APK path
-        id: save_apk
-        run: |
-          APK_FILE=$(ls ./releases/*.apk | head -n 1)
-          if [ -z "$APK_FILE" ]; then
-            echo "No APK found!"
-            exit 1
-          fi
-          echo "apk_path=$APK_FILE" >> $GITHUB_OUTPUT
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: volla-apk
+          path: ./releases/*.apk
 
   release:
     needs: build
@@ -65,6 +58,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      - name: Download APK artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: volla-apk
+          path: ./releases
+
       - name: Build Changelog
         id: github_release
         uses: mikepenz/release-changelog-builder-action@v3
@@ -76,6 +75,6 @@ jobs:
         uses: softprops/action-gh-release@v0.1.14
         with:
           body: ${{ steps.github_release.outputs.changelog }}
-          files: ${{ needs.build.outputs.apk_path }}
+          files: ./releases/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
