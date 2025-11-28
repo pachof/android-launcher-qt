@@ -47,6 +47,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Build Changelog
         id: github_release
