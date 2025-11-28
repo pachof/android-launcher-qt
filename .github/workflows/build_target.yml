@@ -41,29 +41,6 @@ jobs:
           ./build_package_android ./releases
           sudo chmod -R 755 ./releases
 
-      - name: Upload Apk to Nightly Repository
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
-        uses: wlixcc/SFTP-Deploy-Action@v1.0
-        with:
-          username: 'drone'
-          server: 'volla.tech'
-          port: 22
-          ssh_private_key: '${{ secrets.FDROID_DEPLOY_KEY }}'
-          local_path: './releases/*.apk'
-          remote_path: '/fdroid-nightly.volla.tech/builds/volla/android-launcher-qt/'
-          args: '-o CheckHostIP=no -o StrictHostKeyChecking=no'
-
-      - name: Upload Apk to Release Repository
-        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
-        uses: wlixcc/SFTP-Deploy-Action@v1.0
-        with:
-          username: 'drone'
-          server: 'volla.tech'
-          port: 22
-          ssh_private_key: '${{ secrets.FDROID_DEPLOY_KEY }}'
-          local_path: './releases/*.apk'
-          remote_path: '/fdroid.volla.tech/builds/volla/android-launcher-qt/'
-          args: '-o CheckHostIP=no -o StrictHostKeyChecking=no'
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
