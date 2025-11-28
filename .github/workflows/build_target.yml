@@ -5,7 +5,7 @@ on:
     branches:
       - master
     tags:
-      - '*'
+      - '*'  # cualquier tag
   pull_request:
     branches:
       - master
@@ -13,8 +13,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: a12e/docker-qt:5.13-android_arm64_v8a
+    outputs:
+      apk_path: ${{ steps.save_apk.outputs.apk_path }}
 
     steps:
       - uses: actions/checkout@v3
@@ -22,6 +22,13 @@ jobs:
           submodules: true
           fetch-depth: 0
           fetch-tags: true
+
+      # Instalar dependencias necesarias
+      - name: Install Qt and Android SDK
+        run: |
+          sudo apt update
+          sudo apt install -y qt5-default qtbase5-dev unzip wget openjdk-11-jdk
+          echo "Dependencies installed"
 
       - name: Build Apk
         env:
@@ -36,10 +43,19 @@ jobs:
           export VERSION=$(git describe --tags || git rev-parse --short HEAD)
           export TIMESTAMP=$(date +%Y%m%d%H%M)
           export BUILD_ID="$VERSION-$TIMESTAMP"
-          sudo chown -R $(id -u) ${GITHUB_WORKSPACE}
           mkdir -p $MAVEN_HOME $GRADLE_USER_HOME releases
           ./build_package_android ./releases
-          sudo chmod -R 755 ./releases
+          chmod -R 755 ./releases
+
+      - name: Save APK path
+        id: save_apk
+        run: |
+          APK_FILE=$(ls ./releases/*.apk | head -n 1)
+          if [ -z "$APK_FILE" ]; then
+            echo "No APK found!"
+            exit 1
+          fi
+          echo "apk_path=$APK_FILE" >> $GITHUB_OUTPUT
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
@@ -53,13 +69,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
           fetch-tags: true
 
       - name: Download APK artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: volla-apk
           path: ./releases
