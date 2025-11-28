@@ -23,11 +23,11 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      # Instalar dependencias necesarias
+      # Instalar Qt, Android SDK y JDK
       - name: Install Qt and Android SDK
         run: |
           sudo apt update
-          sudo apt install -y qt5-default qtbase5-dev unzip wget openjdk-11-jdk
+          sudo apt install -y qtbase5-dev qtchooser qt5-qmake qtbase5-dev-tools unzip wget openjdk-11-jdk
           echo "Dependencies installed"
 
       - name: Build Apk
