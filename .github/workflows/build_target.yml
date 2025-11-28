@@ -5,7 +5,7 @@ on:
     branches:
       - master
     tags:
-      - '*'
+      - '*'  # cualquier tag
   pull_request:
     branches:
       - master
@@ -20,13 +20,14 @@ jobs:
       apk_path: ${{ steps.save_apk.outputs.apk_path }}
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
         with:
           submodules: true
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Build Apk
+      - name: Build APK
         env:
           ANDROID_KEYSTORE_FILE_CONTENTS: ${{ secrets.ANDROID_KEYSTORE_FILE_CONTENTS }}
           ANDROID_KEYSTORE_PASS: ${{ secrets.ANDROID_KEYSTORE_PASS }}
@@ -53,7 +54,7 @@ jobs:
           fi
           echo "apk_path=$APK_FILE" >> $GITHUB_OUTPUT
 
-      - name: Upload APK as artifact
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: volla-apk
@@ -63,8 +64,10 @@ jobs:
     needs: build
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -82,7 +85,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v0.1.14
         with:
           body: ${{ steps.github_release.outputs.changelog }}
