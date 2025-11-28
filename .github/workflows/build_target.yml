@@ -34,10 +34,15 @@ jobs:
           export VERSION="$(git describe --tags || git rev-parse --short HEAD)"
           export TIMESTAMP="$(date +%Y%m%d%H%M)"
           export BUILD_ID="$VERSION-$TIMESTAMP"
-          mkdir -p "$MAVEN_HOME" "$GRADLE_USER_HOME" releases
-          # Llamamos al build dentro de la imagen a12e/docker-qt usando docker run desde el runner
-          # Montamos el workspace y las cachés para persistir entre ejecuciones
+
+          # Aseguramos que las rutas existen y tienen permisos de escritura para el contenedor
+          sudo mkdir -p "$MAVEN_HOME" "$GRADLE_USER_HOME" build releases
+          # Hacemos las carpetas escribibles para cualquiera (evita problemas de UID/GID)
+          sudo chmod -R a+rwX build releases "$MAVEN_HOME" "$GRADLE_USER_HOME" || true
+          # Alternativa más segura: ejecutar el contenedor con el mismo UID/GID que el runner
+          # y que por tanto pueda escribir sobre el workspace montado.
           docker run --rm \
+            --user "$(id -u):$(id -g)" \
             -e ANDROID_KEYSTORE_FILE_CONTENTS \
             -e ANDROID_KEYSTORE_PASS \
             -e ANDROID_KEYSTORE_ALIAS \
@@ -50,7 +55,10 @@ jobs:
             -v "${GITHUB_WORKSPACE}:/work" \
             -w /work \
             a12e/docker-qt:5.13-android_arm64_v8a \
-            bash -lc "id && ./build_package_android ./releases && chmod -R 755 ./releases"
+            bash -lc "umask 0002 && id && mkdir -p build/android_arm64_v8a && ./build_package_android ./releases && chmod -R 755 ./releases"
+
+          # Por si acaso (si algo quedó con dueño root), cambiamos propietario al runner
+          sudo chown -R "$(id -u):$(id -g)" ./releases || true
 
       - name: Upload APK artifact (from build job)
         uses: actions/upload-artifact@v4
