@@ -41,15 +41,6 @@ jobs:
           ./build_package_android ./releases
           sudo chmod -R 755 ./releases
 
-      - name: Save APK path
-        id: save_apk
-        run: |
-          APK_FILE=$(ls ./releases/*.apk | head -n 1)
-          if [ -z "$APK_FILE" ]; then
-            echo "No APK found!"
-            exit 1
-          fi
-          echo "apk_path=$APK_FILE" >> $GITHUB_OUTPUT
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
